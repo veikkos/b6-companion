@@ -9,6 +9,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -26,7 +27,6 @@ import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 import com.vsoininen.b6companion.model.CurvePoint
-import kotlinx.coroutines.runBlocking
 
 @Composable
 fun ChargingCurveChart(
@@ -36,15 +36,13 @@ fun ChargingCurveChart(
 ) {
     val modelProducer = remember { CartesianChartModelProducer() }
 
-    remember(curvePoints) {
-        runBlocking {
-            modelProducer.runTransaction {
-                lineSeries {
-                    series(
-                        curvePoints.map { it.timeMinutes },
-                        curvePoints.map { it.voltage }
-                    )
-                }
+    LaunchedEffect(curvePoints) {
+        modelProducer.runTransaction {
+            lineSeries {
+                series(
+                    x = curvePoints.map { it.timeMinutes },
+                    y = curvePoints.map { it.voltage }
+                )
             }
         }
     }

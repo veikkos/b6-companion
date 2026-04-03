@@ -11,7 +11,7 @@ class ChargerDisplayParser {
     private val voltageRegex = Regex("""(\d+\.\d+)\s*V""")
     private val modeRegex = Regex("""\b(BAL|CHG|DIS|STO|FAT|FOR)\b""")
     private val timeRegex = Regex("""(\d{2,3}):(\d{2})""")
-    private val capacityRegex = Regex("""(\d{4,5})""")
+    private val capacityRegex = Regex("""(\d{3,5})""")
 
     fun parse(text: String): ChargerReading? {
         val batteryMatch = batteryRegex.find(text) ?: return null

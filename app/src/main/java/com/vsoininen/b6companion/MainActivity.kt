@@ -1,12 +1,15 @@
 package com.vsoininen.b6companion
 
+import android.Manifest
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -14,14 +17,24 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vsoininen.b6companion.ui.MainScreen
 import com.vsoininen.b6companion.ui.theme.B6CompanionTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    private val viewModel: MainViewModel by viewModels()
     private var pendingCameraUri: Uri? = null
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            launchCamera()
+        } else {
+            Toast.makeText(this, "Camera permission required to take photos", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private val takePictureLauncher = registerForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -39,21 +52,16 @@ class MainActivity : ComponentActivity() {
         uri?.let { viewModel.onImageCaptured(it, this) }
     }
 
-    private lateinit var viewModel: MainViewModel
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             B6CompanionTheme {
-                val vm: MainViewModel = viewModel()
-                viewModel = vm
-
-                val imageUri by vm.imageUri.collectAsState()
-                val chargerReading by vm.chargerReading.collectAsState()
-                val prediction by vm.prediction.collectAsState()
-                val isProcessing by vm.isProcessing.collectAsState()
-                val errorMessage by vm.errorMessage.collectAsState()
+                val imageUri by viewModel.imageUri.collectAsState()
+                val chargerReading by viewModel.chargerReading.collectAsState()
+                val prediction by viewModel.prediction.collectAsState()
+                val isProcessing by viewModel.isProcessing.collectAsState()
+                val errorMessage by viewModel.errorMessage.collectAsState()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
@@ -72,6 +80,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takePhoto() {
+        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun launchCamera() {
         val photoFile = File(cacheDir, "charger_photo_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", photoFile)
         pendingCameraUri = uri
