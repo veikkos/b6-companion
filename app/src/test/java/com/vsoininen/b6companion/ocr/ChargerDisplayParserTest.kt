@@ -75,4 +75,50 @@ class ChargerDisplayParserTest {
         assertNotNull(reading)
         assertEquals("STO", reading!!.mode)
     }
+
+    @Test
+    fun `parses real OCR output with artifacts from LCD display`() {
+        // Actual ML Kit output from a SKYRC e6650 photo
+        val text = """7EVD0 NOT GOVERI
+Li45 3.3A 15.65
+BAL B82: 27 90133
+AC/DC Input. Muiti-Chemistry
+Balance Charger/Discharger
+SKYRC
+SOCK"""
+        val reading = parser.parse(text)
+
+        assertNotNull(reading)
+        reading!!
+        assertEquals("Li", reading.batteryType)
+        assertEquals(4, reading.cellCount)
+        assertEquals(3.3, reading.current, 0.01)
+        assertEquals(15.65, reading.voltage, 0.01)
+        assertEquals("BAL", reading.mode)
+        // "B82" → fixLeadingZeros → "082" → 82 minutes
+        assertEquals(82.minutes + 27.seconds, reading.elapsedTime)
+        // "90133" → fixLeadingZeros → "00133" → 133
+        assertEquals(133, reading.mAhCharged)
+    }
+
+    @Test
+    fun `parses when S is read as 5 in battery type`() {
+        val text = "Li45 2.0A 12.50V\nCHG 010:15 01250"
+        val reading = parser.parse(text)
+
+        assertNotNull(reading)
+        reading!!
+        assertEquals("Li", reading.batteryType)
+        assertEquals(4, reading.cellCount)
+    }
+
+    @Test
+    fun `parses voltage without V suffix`() {
+        val text = "Li4S 3.3A 15.65\nBAL 002:27 00133"
+        val reading = parser.parse(text)
+
+        assertNotNull(reading)
+        reading!!
+        assertEquals(15.65, reading.voltage, 0.01)
+    }
 }

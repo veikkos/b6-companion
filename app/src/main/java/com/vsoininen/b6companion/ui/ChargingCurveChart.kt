@@ -20,10 +20,13 @@ import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLine
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.compose.common.fill
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianLayerRangeProvider
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 import com.vsoininen.b6companion.model.CurvePoint
@@ -37,6 +40,7 @@ fun ChargingCurveChart(
     val modelProducer = remember { CartesianChartModelProducer() }
 
     LaunchedEffect(curvePoints) {
+        if (curvePoints.isEmpty()) return@LaunchedEffect
         modelProducer.runTransaction {
             lineSeries {
                 series(
@@ -47,7 +51,18 @@ fun ChargingCurveChart(
         }
     }
 
+    // Y range: pad below the min voltage so the curve fills the chart height
+    val minVoltage = curvePoints.minOfOrNull { it.voltage } ?: 3.0
+    val yMin = (minVoltage - 0.05).coerceAtLeast(2.5)
+    val yMax = 4.25
+
     val lineColor = MaterialTheme.colorScheme.primary
+    val bottomFormatter = CartesianValueFormatter { _, value, _ ->
+        "${value.toInt()}m"
+    }
+    val startFormatter = CartesianValueFormatter { _, value, _ ->
+        "%.2fV".format(value)
+    }
 
     Card(
         modifier = modifier
@@ -72,22 +87,24 @@ fun ChargingCurveChart(
                             LineCartesianLayer.rememberLine(
                                 fill = LineCartesianLayer.LineFill.single(fill(lineColor))
                             )
+                        ),
+                        rangeProvider = CartesianLayerRangeProvider.fixed(
+                            minY = yMin,
+                            maxY = yMax
                         )
                     ),
-                    startAxis = VerticalAxis.rememberStart(),
-                    bottomAxis = HorizontalAxis.rememberBottom()
+                    startAxis = VerticalAxis.rememberStart(
+                        valueFormatter = startFormatter
+                    ),
+                    bottomAxis = HorizontalAxis.rememberBottom(
+                        valueFormatter = bottomFormatter
+                    )
                 ),
                 modelProducer = modelProducer,
+                scrollState = rememberVicoScrollState(scrollEnabled = false),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
-            )
-
-            Text(
-                text = "Voltage (V) over Time (min)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                    .height(180.dp)
             )
         }
     }

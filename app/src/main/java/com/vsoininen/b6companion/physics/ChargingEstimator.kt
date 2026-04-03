@@ -30,10 +30,19 @@ class ChargingEstimator {
     private val fullVoltage = 4.20
     private val cvDurationMinutes = 25.0
 
-    fun estimate(reading: ChargerReading): ChargingPrediction {
-        val cellVoltage = reading.perCellVoltage.coerceIn(3.0, 4.2)
+    companion object {
+        // Estimated per-cell internal resistance (ohms).
+        // Used to approximate OCV from the under-load charging voltage.
+        // Typical range: 3–25mΩ depending on cell capacity and age.
+        // 15mΩ is a reasonable default for a ~2000–3000mAh LiPo cell.
+        const val ESTIMATED_CELL_IR_OHMS = 0.015
+    }
+
+    fun estimate(reading: ChargerReading, batteryCapacityMah: Int): ChargingPrediction {
+        val irDrop = reading.current * ESTIMATED_CELL_IR_OHMS
+        val cellVoltage = (reading.perCellVoltage - irDrop).coerceIn(3.0, 4.2)
         val currentSoc = voltageToSoc(cellVoltage)
-        val totalCapacity = estimateTotalCapacity(reading, currentSoc)
+        val totalCapacity = batteryCapacityMah
         val eteMinutes = estimateEte(reading, cellVoltage, currentSoc, totalCapacity)
         val ete = max(0.0, eteMinutes).minutes
         val eta = LocalDateTime.now().plusMinutes(ete.inWholeMinutes)
@@ -78,30 +87,6 @@ class ChargingEstimator {
         return voltageSocTable.last().first
     }
 
-    private fun estimateTotalCapacity(reading: ChargerReading, currentSoc: Double): Int {
-        val elapsedMinutes = reading.elapsedTime.inWholeSeconds / 60.0
-        if (reading.mAhCharged > 0 && elapsedMinutes > 0.5) {
-            val chargeRateMahPerMin = reading.mAhCharged / elapsedMinutes
-            if (chargeRateMahPerMin > 0 && currentSoc < 95) {
-                val assumedStartSoc = max(0.0, currentSoc - (reading.mAhCharged.toDouble() / (reading.current * 1000) * 100))
-                    .coerceIn(0.0, currentSoc - 1.0)
-                val socDelta = currentSoc - max(0.0, assumedStartSoc)
-                if (socDelta > 0.5) {
-                    return ((reading.mAhCharged / socDelta) * 100).toInt().coerceIn(100, 10000)
-                }
-            }
-        }
-        return when (reading.cellCount) {
-            1 -> 1000
-            2 -> 1300
-            3 -> 1500
-            4 -> 1500
-            5 -> 2200
-            6 -> 2200
-            else -> 1500
-        }
-    }
-
     private fun estimateEte(
         reading: ChargerReading,
         cellVoltage: Double,
@@ -127,35 +112,42 @@ class ChargingEstimator {
         currentCellVoltage: Double,
         eteMinutes: Double
     ): List<CurvePoint> {
+        if (eteMinutes <= 0) return emptyList()
+
         val points = mutableListOf<CurvePoint>()
-        val elapsedMinutes = reading.elapsedTime.inWholeSeconds / 60.0
-        val totalMinutes = elapsedMinutes + eteMinutes
         val steps = 50
 
+        // How much of the remaining time is CC vs CV
+        val ccMinutes: Double
+        val cvMinutes: Double
+        if (currentCellVoltage < cvTransitionVoltage) {
+            // Still in CC phase — need to reach cvTransitionVoltage, then CV
+            val ccRemainingFraction =
+                (cvTransitionVoltage - currentCellVoltage) / (cvTransitionVoltage - 3.0)
+            ccMinutes = max(0.0, eteMinutes - cvDurationMinutes)
+            cvMinutes = cvDurationMinutes
+        } else {
+            // Already in CV phase
+            ccMinutes = 0.0
+            cvMinutes = eteMinutes
+        }
+
         for (i in 0..steps) {
-            val t = (totalMinutes * i) / steps
-            val progress = if (totalMinutes > 0) t / totalMinutes else 1.0
-
-            val ccEndProgress = if (totalMinutes > 0 && eteMinutes > 0) {
-                val ccDuration = if (currentCellVoltage < cvTransitionVoltage) {
-                    totalMinutes - cvDurationMinutes
-                } else {
-                    elapsedMinutes * 0.7
-                }
-                (ccDuration / totalMinutes).coerceIn(0.0, 1.0)
-            } else 0.5
-
+            val t = (eteMinutes * i) / steps
             val voltage: Double
             val current: Double
 
-            if (progress <= ccEndProgress) {
-                val startVoltage = 3.5
-                voltage = startVoltage + (cvTransitionVoltage - startVoltage) * (progress / ccEndProgress)
+            if (ccMinutes > 0 && t <= ccMinutes) {
+                // CC phase: voltage ramps from current to cvTransitionVoltage
+                val ccProgress = t / ccMinutes
+                voltage = currentCellVoltage + (cvTransitionVoltage - currentCellVoltage) * ccProgress
                 current = reading.current
             } else {
-                voltage = cvTransitionVoltage + (fullVoltage - cvTransitionVoltage) *
-                    ((progress - ccEndProgress) / (1.0 - ccEndProgress)).coerceIn(0.0, 1.0)
-                val cvProgress = ((progress - ccEndProgress) / (1.0 - ccEndProgress)).coerceIn(0.0, 1.0)
+                // CV phase: voltage ramps from cvTransitionVoltage to fullVoltage
+                val cvTime = if (ccMinutes > 0) t - ccMinutes else t
+                val cvProgress = (cvTime / cvMinutes).coerceIn(0.0, 1.0)
+                val cvStart = if (currentCellVoltage >= cvTransitionVoltage) currentCellVoltage else cvTransitionVoltage
+                voltage = cvStart + (fullVoltage - cvStart) * cvProgress
                 current = reading.current * exp(-3.0 * cvProgress)
             }
 

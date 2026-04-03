@@ -30,7 +30,7 @@ class ChargingEstimatorTest {
     @Test
     fun `calculates SoC for mid-charge 4S battery`() {
         val reading = makeReading()
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertTrue(prediction.estimatedSocPercent > 70.0)
         assertTrue(prediction.estimatedSocPercent < 90.0)
     }
@@ -38,35 +38,35 @@ class ChargingEstimatorTest {
     @Test
     fun `calculates SoC for fully charged battery`() {
         val reading = makeReading(voltage = 16.8)
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertEquals(100.0, prediction.estimatedSocPercent, 1.0)
     }
 
     @Test
     fun `calculates SoC for empty battery`() {
         val reading = makeReading(voltage = 12.0)
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertEquals(0.0, prediction.estimatedSocPercent, 1.0)
     }
 
     @Test
     fun `ETE is positive for mid-charge battery`() {
         val reading = makeReading()
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertTrue(prediction.ete.inWholeMinutes > 0)
     }
 
     @Test
     fun `ETE is near zero for nearly full battery`() {
         val reading = makeReading(voltage = 16.72, mAh = 1400, elapsedMinutes = 30)
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertTrue(prediction.ete.inWholeMinutes < 15)
     }
 
     @Test
     fun `generates curve points`() {
         val reading = makeReading()
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertTrue(prediction.curvePoints.isNotEmpty())
         assertTrue(prediction.curvePoints.first().timeMinutes >= 0.0)
         val lastVoltage = prediction.curvePoints.last().voltage
@@ -74,17 +74,16 @@ class ChargingEstimatorTest {
     }
 
     @Test
-    fun `estimates reasonable total capacity`() {
+    fun `uses provided battery capacity`() {
         val reading = makeReading(mAh = 500, elapsedMinutes = 10, voltage = 15.0)
-        val prediction = estimator.estimate(reading)
-        assertTrue(prediction.estimatedTotalCapacityMah > 500)
-        assertTrue(prediction.estimatedTotalCapacityMah < 10000)
+        val prediction = estimator.estimate(reading, 2200)
+        assertEquals(2200, prediction.estimatedTotalCapacityMah)
     }
 
     @Test
     fun `handles 6S battery`() {
         val reading = makeReading(cellCount = 6, voltage = 24.0, current = 2.0, mAh = 800)
-        val prediction = estimator.estimate(reading)
+        val prediction = estimator.estimate(reading, 2200)
         assertTrue(prediction.estimatedSocPercent > 80.0)
         assertTrue(prediction.estimatedSocPercent < 95.0)
     }

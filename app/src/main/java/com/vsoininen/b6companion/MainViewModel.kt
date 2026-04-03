@@ -2,6 +2,7 @@ package com.vsoininen.b6companion
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.common.InputImage
@@ -40,6 +41,17 @@ class MainViewModel : ViewModel() {
     private val _rawOcrText = MutableStateFlow<String?>(null)
     val rawOcrText: StateFlow<String?> = _rawOcrText
 
+    private val _batteryCapacityMah = MutableStateFlow(2200)
+    val batteryCapacityMah: StateFlow<Int> = _batteryCapacityMah
+
+    fun onBatteryCapacityChanged(capacityMah: Int) {
+        _batteryCapacityMah.value = capacityMah.coerceIn(100, 30000)
+        // Re-run prediction if we already have a reading
+        _chargerReading.value?.let { reading ->
+            _prediction.value = estimator.estimate(reading, _batteryCapacityMah.value)
+        }
+    }
+
     fun onImageCaptured(uri: Uri, context: Context) {
         _imageUri.value = uri
         _errorMessage.value = null
@@ -53,11 +65,13 @@ class MainViewModel : ViewModel() {
                 val result = recognizer.process(image).await()
                 val text = result.textBlocks.joinToString("\n") { it.text }
                 _rawOcrText.value = text
+                Log.d("B6Companion", "OCR raw text: '$text'")
 
                 val reading = parser.parse(text)
+                Log.d("B6Companion", "Parse result: $reading")
                 if (reading != null) {
                     _chargerReading.value = reading
-                    _prediction.value = estimator.estimate(reading)
+                    _prediction.value = estimator.estimate(reading, _batteryCapacityMah.value)
                 } else {
                     _errorMessage.value = "Could not read charger display. Try again with better lighting or angle."
                 }

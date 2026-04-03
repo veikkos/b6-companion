@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                 val prediction by viewModel.prediction.collectAsState()
                 val isProcessing by viewModel.isProcessing.collectAsState()
                 val errorMessage by viewModel.errorMessage.collectAsState()
+                val batteryCapacityMah by viewModel.batteryCapacityMah.collectAsState()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
@@ -70,6 +71,8 @@ class MainActivity : ComponentActivity() {
                         prediction = prediction,
                         isProcessing = isProcessing,
                         errorMessage = errorMessage,
+                        batteryCapacityMah = batteryCapacityMah,
+                        onBatteryCapacityChanged = viewModel::onBatteryCapacityChanged,
                         onTakePhoto = ::takePhoto,
                         onPickPhoto = ::pickPhoto,
                         modifier = Modifier.padding(innerPadding)

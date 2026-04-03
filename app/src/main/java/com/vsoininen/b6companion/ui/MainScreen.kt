@@ -9,14 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vsoininen.b6companion.model.ChargerReading
 import com.vsoininen.b6companion.model.ChargingPrediction
@@ -28,6 +31,8 @@ fun MainScreen(
     prediction: ChargingPrediction?,
     isProcessing: Boolean,
     errorMessage: String?,
+    batteryCapacityMah: Int,
+    onBatteryCapacityChanged: (Int) -> Unit,
     onTakePhoto: () -> Unit,
     onPickPhoto: () -> Unit,
     modifier: Modifier = Modifier
@@ -36,7 +41,7 @@ fun MainScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         ImageSection(imageUri = imageUri)
 
@@ -69,6 +74,19 @@ fun MainScreen(
                 currentTimeMinutes = chargerReading?.elapsedTime?.inWholeSeconds?.div(60.0) ?: 0.0
             )
         }
+
+        OutlinedTextField(
+            value = batteryCapacityMah.toString(),
+            onValueChange = { value ->
+                value.filter { it.isDigit() }.toIntOrNull()?.let { onBatteryCapacityChanged(it) }
+            },
+            label = { Text("Battery Capacity (mAh)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+        )
 
         Row(
             modifier = Modifier
