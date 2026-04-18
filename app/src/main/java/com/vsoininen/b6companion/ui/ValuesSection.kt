@@ -76,6 +76,9 @@ fun ValuesSection(
             ValueCard(
                 label = "Elapsed",
                 value = formatDuration(reading.elapsedTime),
+                warning = if (!reading.isElapsedConsistent()) {
+                    "Inconsistent with charge — OCR may have misread"
+                } else null,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -86,7 +89,8 @@ fun ValuesSection(
 private fun ValueCard(
     label: String,
     value: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    warning: String? = null
 ) {
     Card(
         modifier = modifier,
@@ -105,6 +109,14 @@ private fun ValueCard(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium
             )
+            if (warning != null) {
+                Text(
+                    text = "\u26A0 $warning",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
     }
 }

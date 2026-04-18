@@ -53,8 +53,12 @@ class ChargingEstimator {
     fun estimate(reading: ChargerReading, batteryCapacityMah: Int): ChargingPrediction {
         val irDrop = reading.current * estimatedCellIrOhms(batteryCapacityMah)
         val cellVoltage = (reading.perCellVoltage - irDrop).coerceIn(3.0, 4.2)
-        val currentSoc = voltageToSoc(cellVoltage)
         val totalCapacity = batteryCapacityMah
+        val currentSoc = if (isCvPhase(reading)) {
+            cvPhaseSoc(reading.current, totalCapacity)
+        } else {
+            voltageToSoc(cellVoltage)
+        }
         val eteMinutes = estimateEte(reading, cellVoltage, currentSoc, totalCapacity)
         val ete = max(0.0, eteMinutes).minutes
         val eta = LocalDateTime.now().plusMinutes(ete.inWholeMinutes)
@@ -125,6 +129,17 @@ class ChargingEstimator {
         val iTermAmps = terminationCRate * capacityMah / 1000.0
         if (currentAmps <= iTermAmps) return 0.0
         return cvTauMinutes * ln(currentAmps / iTermAmps)
+    }
+
+    // SoC during CV from the integral of the remaining current decay:
+    //   Q_remaining = integral_0^T I_now * exp(-t/tau) dt, stopping at I_term
+    //               = tau * (I_now - I_term)
+    // Robust to mid-charge preset changes because it depends only on I_now, not history.
+    private fun cvPhaseSoc(currentAmps: Double, capacityMah: Int): Double {
+        val iTermAmps = terminationCRate * capacityMah / 1000.0
+        if (currentAmps <= iTermAmps) return 100.0
+        val remainingMah = (cvTauMinutes / 60.0) * (currentAmps - iTermAmps) * 1000.0
+        return ((capacityMah - remainingMah) / capacityMah * 100.0).coerceIn(0.0, 100.0)
     }
 
     private fun generateCurve(

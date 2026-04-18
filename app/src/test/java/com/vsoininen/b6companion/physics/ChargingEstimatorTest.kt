@@ -95,6 +95,32 @@ class ChargingEstimatorTest {
     }
 
     @Test
+    fun `real screenshot — 3S 1800mAh just entered CV at 2_3A yields consistent SoC and ETE`() {
+        // Screenshot regression: 3S LiPo 1800 mAh, display 12.60V (4.20V/cell),
+        // current 2.3A (just entered CV, preset was 2.7A, tapered slightly), 655 mAh delivered.
+        //
+        // Expected from physical model:
+        //   I_term = 0.05C = 0.09A
+        //   remaining mAh = tau/60 * (I_now - I_term) * 1000 = 5/60 * 2.21 * 1000 ≈ 184 mAh
+        //   SoC = (1800 - 184)/1800 ≈ 89.8%
+        //   ETE = tau * ln(I_now/I_term) = 5 * ln(2.3/0.09) ≈ 16.2 min
+        //
+        // Consistency: delivering 184 mAh with current tapering 2.3A -> 0.09A takes
+        // ~16 min. SoC % and ETE must agree with each other.
+        val reading = makeReading(
+            cellCount = 3,
+            voltage = 12.60,
+            current = 2.3,
+            mAh = 655,
+            elapsedMinutes = 14,
+            elapsedSeconds = 49
+        )
+        val prediction = estimator.estimate(reading, 1800)
+        assertEquals(89.8, prediction.estimatedSocPercent, 1.0)
+        assertEquals(16L, prediction.ete.inWholeMinutes)
+    }
+
+    @Test
     fun `CV remaining time scales with current toward I_term, not fixed duration`() {
         // At start of CV (display just at threshold) with 1C charging current,
         // I_term-based model predicts t = tau * ln(I_now / I_term) which is well
