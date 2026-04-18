@@ -1,5 +1,7 @@
 # B6 Companion
 
+AI driven implementation as is nowadays the trend...
+
 Point your phone at a SkyRC B6-series LiPo charger, take a photo, and get a
 state-of-charge estimate, time-until-done prediction, and a SoC curve from
 now to full.
