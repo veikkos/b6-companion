@@ -102,6 +102,25 @@ SOCK"""
     }
 
     @Test
+    fun `parses real OCR with B-for-0 inside voltage decimal`() {
+        // Actual ML Kit output captured 2026-04-18: 3S LiPo mid-charge.
+        // Display showed "Li3S 1.8A 12.02V / CHG 000:13 00006".
+        // OCR misread: 0 → B inside voltage ("12.B2"), 0 → G/O in time ("GOG:13"),
+        // 0 → D leading capacity ("D006"), V → /.
+        val text = "Li35 1.8A 12.B2/\nCHG GOG: 13 D006"
+        val reading = parser.parse(text)
+
+        assertNotNull(reading)
+        reading!!
+        assertEquals(3, reading.cellCount)
+        assertEquals(1.8, reading.current, 0.01)
+        assertEquals(12.02, reading.voltage, 0.01)
+        assertEquals("CHG", reading.mode)
+        assertEquals(13.seconds, reading.elapsedTime)
+        assertEquals(6, reading.mAhCharged)
+    }
+
+    @Test
     fun `parses when S is read as 5 in battery type`() {
         val text = "Li45 2.0A 12.50V\nCHG 010:15 01250"
         val reading = parser.parse(text)

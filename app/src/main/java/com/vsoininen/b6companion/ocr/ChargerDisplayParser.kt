@@ -19,13 +19,14 @@ class ChargerDisplayParser {
     private val capacityRegex = Regex("""(\d{3,5})""")
 
     // Non-digit chars that LCD-0 is often misread as (unambiguous misreads)
-    private val nonDigitZeroChars = setOf('O', 'D', 'B')
+    private val nonDigitZeroChars = setOf('O', 'D', 'B', 'G')
     // Digit chars that can be misread-0 on 7-segment LCDs. Only replace these
     // when the next char is already '0' (padding context), since otherwise they
     // are likely real digits.
     private val ambiguousDigitZeroChars = setOf('8', '9')
 
-    fun parse(text: String): ChargerReading? {
+    fun parse(rawText: String): ChargerReading? {
+        val text = normalizeLcdMisreads(rawText)
         val batteryMatch = batteryRegex.find(text) ?: return null
         val currentMatch = currentRegex.find(text) ?: return null
 
@@ -72,6 +73,29 @@ class ChargerDisplayParser {
             mAhCharged = fixedCapacity
         )
     }
+
+    /**
+     * LCD-segment '0' is often OCR'd as O/D/B/G. When such a character sits
+     * sandwiched between two digit/dot characters (e.g. "12.B2" or "00B6"),
+     * it is almost certainly a misread '0'. Replace it in-place so downstream
+     * regexes can match the numeric fields. Leading-position misreads are
+     * handled separately by [fixLeadingZeros].
+     */
+    private fun normalizeLcdMisreads(text: String): String {
+        if (text.length < 3) return text
+        val out = text.toCharArray()
+        for (i in 1 until out.size - 1) {
+            if (out[i].uppercaseChar() in nonDigitZeroChars &&
+                isDigitOrDot(out[i - 1]) &&
+                isDigitOrDot(out[i + 1])
+            ) {
+                out[i] = '0'
+            }
+        }
+        return String(out)
+    }
+
+    private fun isDigitOrDot(c: Char): Boolean = c.isDigit() || c == '.'
 
     /**
      * LCD '0' can be OCR'd as 'O'/'D'/'B' (non-digits, unambiguous) or as '8'/'9'
