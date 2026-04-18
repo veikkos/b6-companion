@@ -5,6 +5,7 @@ import com.vsoininen.b6companion.model.ChargingPrediction
 import com.vsoininen.b6companion.model.CurvePoint
 import java.time.LocalDateTime
 import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.time.Duration.Companion.minutes
@@ -27,26 +28,37 @@ class ChargingEstimator {
     )
 
     private val cvTransitionVoltage = 4.15
+    private val cvDisplayThreshold = 4.18
     private val fullVoltage = 4.20
-    private val cvDurationMinutes = 25.0
+
+    // CV current-decay time constant. Controls how quickly charger taper approaches I_term.
+    // ~5 min is typical for a healthy LiPo charging at moderate C-rate.
+    private val cvTauMinutes = 5.0
+
+    // Charge-termination fraction of C (I_term = terminationCRate * capacity).
+    private val terminationCRate = 0.05
+
+    private fun isCvPhase(reading: ChargerReading): Boolean =
+        reading.perCellVoltage >= cvDisplayThreshold
 
     companion object {
-        // Estimated per-cell internal resistance (ohms).
-        // Used to approximate OCV from the under-load charging voltage.
-        // Typical range: 3–25mΩ depending on cell capacity and age.
-        // 15mΩ is a reasonable default for a ~2000–3000mAh LiPo cell.
-        const val ESTIMATED_CELL_IR_OHMS = 0.015
+        // Per-cell IR scales inversely with capacity: bigger cells have lower IR.
+        // Clamped to a realistic band so tiny or huge capacity inputs don't produce absurd drops.
+        fun estimatedCellIrOhms(capacityMah: Int): Double {
+            if (capacityMah <= 0) return 0.015
+            return (40.0 / capacityMah).coerceIn(0.008, 0.060)
+        }
     }
 
     fun estimate(reading: ChargerReading, batteryCapacityMah: Int): ChargingPrediction {
-        val irDrop = reading.current * ESTIMATED_CELL_IR_OHMS
+        val irDrop = reading.current * estimatedCellIrOhms(batteryCapacityMah)
         val cellVoltage = (reading.perCellVoltage - irDrop).coerceIn(3.0, 4.2)
         val currentSoc = voltageToSoc(cellVoltage)
         val totalCapacity = batteryCapacityMah
         val eteMinutes = estimateEte(reading, cellVoltage, currentSoc, totalCapacity)
         val ete = max(0.0, eteMinutes).minutes
         val eta = LocalDateTime.now().plusMinutes(ete.inWholeMinutes)
-        val curvePoints = generateCurve(reading, cellVoltage, eteMinutes)
+        val curvePoints = generateCurve(reading, cellVoltage, eteMinutes, totalCapacity)
 
         return ChargingPrediction(
             estimatedSocPercent = currentSoc,
@@ -95,22 +107,31 @@ class ChargingEstimator {
     ): Double {
         if (currentSoc >= 99.5) return 0.0
 
-        return if (cellVoltage < cvTransitionVoltage) {
+        return if (!isCvPhase(reading)) {
             val ccRemainingMah = totalCapacity * (voltageToSoc(cvTransitionVoltage) - currentSoc) / 100.0
             val ccTimeMinutes = if (reading.current > 0) {
                 (ccRemainingMah / (reading.current * 1000)) * 60
             } else 0.0
-            ccTimeMinutes + cvDurationMinutes
+            ccTimeMinutes + cvTerminationMinutes(totalCapacity, reading.current)
         } else {
-            val cvProgress = (cellVoltage - cvTransitionVoltage) / (fullVoltage - cvTransitionVoltage)
-            cvDurationMinutes * (1.0 - cvProgress.coerceIn(0.0, 1.0))
+            cvTerminationMinutes(totalCapacity, reading.current)
         }
+    }
+
+    // Minutes until current taper reaches I_term (0.05C by default).
+    // Exponential decay model: I(t) = I_now * exp(-t / tau).
+    // Solving I(t) = I_term: t = tau * ln(I_now / I_term).
+    private fun cvTerminationMinutes(capacityMah: Int, currentAmps: Double): Double {
+        val iTermAmps = terminationCRate * capacityMah / 1000.0
+        if (currentAmps <= iTermAmps) return 0.0
+        return cvTauMinutes * ln(currentAmps / iTermAmps)
     }
 
     private fun generateCurve(
         reading: ChargerReading,
         currentCellVoltage: Double,
-        eteMinutes: Double
+        eteMinutes: Double,
+        capacityMah: Int
     ): List<CurvePoint> {
         if (eteMinutes <= 0) return emptyList()
 
@@ -120,12 +141,10 @@ class ChargingEstimator {
         // How much of the remaining time is CC vs CV
         val ccMinutes: Double
         val cvMinutes: Double
-        if (currentCellVoltage < cvTransitionVoltage) {
+        if (!isCvPhase(reading)) {
             // Still in CC phase — need to reach cvTransitionVoltage, then CV
-            val ccRemainingFraction =
-                (cvTransitionVoltage - currentCellVoltage) / (cvTransitionVoltage - 3.0)
-            ccMinutes = max(0.0, eteMinutes - cvDurationMinutes)
-            cvMinutes = cvDurationMinutes
+            cvMinutes = cvTerminationMinutes(capacityMah, reading.current)
+            ccMinutes = max(0.0, eteMinutes - cvMinutes)
         } else {
             // Already in CV phase
             ccMinutes = 0.0

@@ -18,8 +18,12 @@ class ChargerDisplayParser {
     private val timeRegex = Regex("""(\w{2,3}):[\s]?(\d{2})""")
     private val capacityRegex = Regex("""(\d{3,5})""")
 
-    // LCD segment '0' is often misread as 8, 9, O, D, B by OCR
-    private val lcdZeroChars = setOf('8', '9', 'O', 'D', 'B')
+    // Non-digit chars that LCD-0 is often misread as (unambiguous misreads)
+    private val nonDigitZeroChars = setOf('O', 'D', 'B')
+    // Digit chars that can be misread-0 on 7-segment LCDs. Only replace these
+    // when the next char is already '0' (padding context), since otherwise they
+    // are likely real digits.
+    private val ambiguousDigitZeroChars = setOf('8', '9')
 
     fun parse(text: String): ChargerReading? {
         val batteryMatch = batteryRegex.find(text) ?: return null
@@ -70,17 +74,21 @@ class ChargerDisplayParser {
     }
 
     /**
-     * LCD segment '0' is often misread by OCR as 8, 9, O, D, B.
-     * Replace leading occurrences of these chars with '0'.
-     * Stops at the first char that looks like a real non-zero digit.
+     * LCD '0' can be OCR'd as 'O'/'D'/'B' (non-digits, unambiguous) or as '8'/'9'
+     * (real digits, ambiguous). Non-digit candidates are always replaced.
+     * Ambiguous digit candidates are only replaced when followed by a real '0'
+     * — that pattern indicates padding, where the leading digit is more likely
+     * a misread zero than a real value.
      */
     private fun fixLeadingZeros(s: String): String {
         val chars = s.toCharArray()
         for (i in chars.indices) {
-            if (chars[i].uppercaseChar() in lcdZeroChars) {
-                chars[i] = '0'
-            } else {
-                break
+            val upper = chars[i].uppercaseChar()
+            when {
+                upper in nonDigitZeroChars -> chars[i] = '0'
+                upper in ambiguousDigitZeroChars && i + 1 < chars.size && chars[i + 1] == '0' ->
+                    chars[i] = '0'
+                else -> return String(chars)
             }
         }
         return String(chars)
