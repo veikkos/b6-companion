@@ -1,13 +1,15 @@
 package com.vsoininen.b6companion
 
+import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.vsoininen.b6companion.data.CapacityPreferences
 import com.vsoininen.b6companion.model.ChargerReading
 import com.vsoininen.b6companion.model.ChargingPrediction
 import com.vsoininen.b6companion.ocr.ChargerDisplayParser
@@ -17,11 +19,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val parser = ChargerDisplayParser()
     private val estimator = ChargingEstimator()
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val capacityPrefs = CapacityPreferences(application)
 
     private val _imageUri = MutableStateFlow<Uri?>(null)
     val imageUri: StateFlow<Uri?> = _imageUri
@@ -41,14 +44,16 @@ class MainViewModel : ViewModel() {
     private val _rawOcrText = MutableStateFlow<String?>(null)
     val rawOcrText: StateFlow<String?> = _rawOcrText
 
-    private val _batteryCapacityMah = MutableStateFlow(2200)
+    private val _batteryCapacityMah = MutableStateFlow(capacityPrefs.getCapacityMah())
     val batteryCapacityMah: StateFlow<Int> = _batteryCapacityMah
 
     fun onBatteryCapacityChanged(capacityMah: Int) {
-        _batteryCapacityMah.value = capacityMah.coerceIn(100, 30000)
+        val clamped = capacityMah.coerceIn(100, 30000)
+        _batteryCapacityMah.value = clamped
+        capacityPrefs.setCapacityMah(clamped)
         // Re-run prediction if we already have a reading
         _chargerReading.value?.let { reading ->
-            _prediction.value = estimator.estimate(reading, _batteryCapacityMah.value)
+            _prediction.value = estimator.estimate(reading, clamped)
         }
     }
 

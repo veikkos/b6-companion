@@ -95,6 +95,26 @@ class ChargingEstimatorTest {
     }
 
     @Test
+    fun `curve SoC starts at current SoC and ends at 100 percent`() {
+        val reading = makeReading(cellCount = 3, voltage = 12.60, current = 2.3)
+        val prediction = estimator.estimate(reading, 1800)
+        val firstSoc = prediction.curvePoints.first().socPercent
+        val lastSoc = prediction.curvePoints.last().socPercent
+        assertEquals(prediction.estimatedSocPercent, firstSoc, 0.5)
+        assertEquals(100.0, lastSoc, 0.5)
+    }
+
+    @Test
+    fun `curve SoC is monotonically non-decreasing`() {
+        val reading = makeReading(cellCount = 3, voltage = 12.60, current = 2.3)
+        val prediction = estimator.estimate(reading, 1800)
+        val socs = prediction.curvePoints.map { it.socPercent }
+        socs.zipWithNext().forEach { (a, b) ->
+            assertTrue("SoC must not decrease within curve: $a -> $b", b >= a - 0.01)
+        }
+    }
+
+    @Test
     fun `real screenshot — 3S 1800mAh just entered CV at 2_3A yields consistent SoC and ETE`() {
         // Screenshot regression: 3S LiPo 1800 mAh, display 12.60V (4.20V/cell),
         // current 2.3A (just entered CV, preset was 2.7A, tapered slightly), 655 mAh delivered.

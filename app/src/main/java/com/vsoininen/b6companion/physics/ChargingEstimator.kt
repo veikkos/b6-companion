@@ -62,7 +62,7 @@ class ChargingEstimator {
         val eteMinutes = estimateEte(reading, cellVoltage, currentSoc, totalCapacity)
         val ete = max(0.0, eteMinutes).minutes
         val eta = LocalDateTime.now().plusMinutes(ete.inWholeMinutes)
-        val curvePoints = generateCurve(reading, cellVoltage, eteMinutes, totalCapacity)
+        val curvePoints = generateCurve(reading, cellVoltage, currentSoc, eteMinutes, totalCapacity)
 
         return ChargingPrediction(
             estimatedSocPercent = currentSoc,
@@ -145,6 +145,7 @@ class ChargingEstimator {
     private fun generateCurve(
         reading: ChargerReading,
         currentCellVoltage: Double,
+        currentSoc: Double,
         eteMinutes: Double,
         capacityMah: Int
     ): List<CurvePoint> {
@@ -157,38 +158,53 @@ class ChargingEstimator {
         val ccMinutes: Double
         val cvMinutes: Double
         if (!isCvPhase(reading)) {
-            // Still in CC phase — need to reach cvTransitionVoltage, then CV
             cvMinutes = cvTerminationMinutes(capacityMah, reading.current)
             ccMinutes = max(0.0, eteMinutes - cvMinutes)
         } else {
-            // Already in CV phase
             ccMinutes = 0.0
             cvMinutes = eteMinutes
         }
+
+        // Unnormalized charge-delivered-by-now shape: linear during CC, 1-exp(-t/tau) during CV.
+        // We normalize so SoC hits exactly 100% at t = eteMinutes.
+        val ccChargeTotal = reading.current * ccMinutes / 60.0 * 1000.0
+        val cvChargeShape = { tCv: Double -> 1.0 - exp(-tCv / cvTauMinutes) }
+        val totalCharge = ccChargeTotal +
+            reading.current * cvTauMinutes / 60.0 * cvChargeShape(cvMinutes) * 1000.0
+        val socRise = 100.0 - currentSoc
 
         for (i in 0..steps) {
             val t = (eteMinutes * i) / steps
             val voltage: Double
             val current: Double
+            val chargeDelivered: Double
 
             if (ccMinutes > 0 && t <= ccMinutes) {
-                // CC phase: voltage ramps from current to cvTransitionVoltage
                 val ccProgress = t / ccMinutes
                 voltage = currentCellVoltage + (cvTransitionVoltage - currentCellVoltage) * ccProgress
                 current = reading.current
+                chargeDelivered = reading.current * t / 60.0 * 1000.0
             } else {
-                // CV phase: voltage ramps from cvTransitionVoltage to fullVoltage
                 val cvTime = if (ccMinutes > 0) t - ccMinutes else t
                 val cvProgress = (cvTime / cvMinutes).coerceIn(0.0, 1.0)
                 val cvStart = if (currentCellVoltage >= cvTransitionVoltage) currentCellVoltage else cvTransitionVoltage
                 voltage = cvStart + (fullVoltage - cvStart) * cvProgress
-                current = reading.current * exp(-3.0 * cvProgress)
+                current = reading.current * exp(-cvTime / cvTauMinutes)
+                chargeDelivered = ccChargeTotal +
+                    reading.current * cvTauMinutes / 60.0 * cvChargeShape(cvTime) * 1000.0
+            }
+
+            val socPercent = if (totalCharge > 0) {
+                (currentSoc + socRise * (chargeDelivered / totalCharge)).coerceIn(0.0, 100.0)
+            } else {
+                currentSoc
             }
 
             points.add(CurvePoint(
                 timeMinutes = t,
                 voltage = min(fullVoltage, voltage),
-                current = max(0.05, current)
+                current = max(0.05, current),
+                socPercent = socPercent
             ))
         }
 

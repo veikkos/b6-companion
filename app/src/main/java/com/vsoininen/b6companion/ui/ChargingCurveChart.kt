@@ -45,23 +45,24 @@ fun ChargingCurveChart(
             lineSeries {
                 series(
                     x = curvePoints.map { it.timeMinutes },
-                    y = curvePoints.map { it.voltage }
+                    y = curvePoints.map { it.socPercent }
                 )
             }
         }
     }
 
-    // Y range: pad below the min voltage so the curve fills the chart height
-    val minVoltage = curvePoints.minOfOrNull { it.voltage } ?: 3.0
-    val yMin = (minVoltage - 0.05).coerceAtLeast(2.5)
-    val yMax = 4.25
+    // Y range: from nearest 10% below current SoC up to exactly 100%, so axis
+    // ticks land on round values (e.g. 70/80/90/100) and the curve reaches the top.
+    val minSoc = curvePoints.minOfOrNull { it.socPercent } ?: 0.0
+    val yMin = (kotlin.math.floor(minSoc / 10.0) * 10.0).coerceAtLeast(0.0)
+    val yMax = 100.0
 
     val lineColor = MaterialTheme.colorScheme.primary
     val bottomFormatter = CartesianValueFormatter { _, value, _ ->
         "${value.toInt()}m"
     }
     val startFormatter = CartesianValueFormatter { _, value, _ ->
-        "%.2fV".format(value)
+        "${value.toInt()}%"
     }
 
     Card(

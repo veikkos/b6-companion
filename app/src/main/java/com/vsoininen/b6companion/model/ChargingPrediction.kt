@@ -14,5 +14,6 @@ data class ChargingPrediction(
 data class CurvePoint(
     val timeMinutes: Double,
     val voltage: Double,
-    val current: Double
+    val current: Double,
+    val socPercent: Double
 )
